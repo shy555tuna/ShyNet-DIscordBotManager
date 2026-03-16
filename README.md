@@ -7,7 +7,7 @@ Works on **macOS, Windows, and Linux** with a single command.
 
 ## Requirements
 
-- **Python 3.11 or newer**
+- **Python 3.11 or newer - needs to be installed on your machine**
   - macOS: `brew install python@3.11` or https://www.python.org/downloads/
   - Windows: https://www.python.org/downloads/ *(check "Add Python to PATH")*
   - Ubuntu/Debian: `sudo apt install python3.11 python3.11-venv`
