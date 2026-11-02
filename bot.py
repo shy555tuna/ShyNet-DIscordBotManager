@@ -5,6 +5,7 @@ import aiohttp
 import asyncio
 import os
 import sys
+import time
 from google import genai
 from google.genai import types
 
@@ -49,6 +50,13 @@ def chat(user_input: str) -> str:
     )
     return response.text
 
+
+# Per-user cooldown (seconds) between Gemini calls — stops a busy channel
+# from burning through quota and stacking up a backlog of slow grounded calls.
+COOLDOWN_SECONDS = 10
+_last_call: dict[int, float] = {}
+
+
 class MyClient(discord.Client):
     async def setup_hook(self):
         ssl_ctx = ssl.create_default_context(cafile=certifi.where())
@@ -61,16 +69,26 @@ class MyClient(discord.Client):
     async def on_message(self, message: discord.Message):
         if message.author == self.user:
             return
-        if str(message.content).lower().startswith(f'{ai_name.lower()} ') or (self.user in message.mentions):
-            user_input = message.content.removeprefix(f'{ai_name} ')
-            print(f'[{message.author}] → {ai_name}: {user_input[:80]}', flush=True)
-            try:
-                ai_response = chat(user_input)
-                await message.channel.send(ai_response)
-                print(f'{ai_name} responded ({len(ai_response)} chars)', flush=True)
-            except Exception as e:
-                print(f'ERROR generating response: {e}', flush=True)
-                await message.channel.send("Sorry, I encountered an error generating a response.")
+        content = str(message.content)
+        trigger = f'{ai_name.lower()} '
+        by_name = content.lower().startswith(trigger)
+        if not (by_name or self.user in message.mentions):
+            return
+        now = time.monotonic()
+        if now - _last_call.get(message.author.id, 0.0) < COOLDOWN_SECONDS:
+            print(f'Cooldown: ignoring message from {message.author}', flush=True)
+            return
+        _last_call[message.author.id] = now
+        user_input = content[len(trigger):] if by_name else content
+        print(f'[{message.author}] → {ai_name}: {user_input[:80]}', flush=True)
+        try:
+            ai_response = await asyncio.to_thread(chat, user_input)
+            for i in range(0, len(ai_response), 2000):
+                await message.channel.send(ai_response[i:i+2000])
+            print(f'{ai_name} responded ({len(ai_response)} chars)', flush=True)
+        except Exception as e:
+            print(f'ERROR generating response: {e}', flush=True)
+            await message.channel.send("Sorry, I encountered an error generating a response.")
 
 intents = discord.Intents.default()
 intents.message_content = True
